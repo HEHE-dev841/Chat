@@ -1,0 +1,245 @@
+import customtkinter as ctk
+import hashlib
+import random
+import datetime
+import socket
+import threading
+from tkinter import messagebox
+
+ctk.set_appearance_mode("System")
+ctk.set_default_color_theme("blue")
+
+USER_DB = {
+    "admin": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"  # password: 'password'
+}
+
+# Replace with your server's public IP address
+HOST_IP = "10.124.217.18"
+PORT = 12345
+
+class LoginApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Multi-Tool Login")
+        self.master.geometry("300x200")
+
+        self.frame = ctk.CTkFrame(master)
+        self.frame.pack(pady=20, padx=20, fill="both", expand=True)
+
+        self.label = ctk.CTkLabel(self.frame, text="Login System")
+        self.label.pack(pady=12, padx=10)
+
+        self.username_entry = ctk.CTkEntry(self.frame, placeholder_text="Username")
+        self.username_entry.pack(pady=12, padx=10)
+
+        self.password_entry = ctk.CTkEntry(self.frame, placeholder_text="Password", show="*")
+        self.password_entry.pack(pady=12, padx=10)
+
+        self.login_button = ctk.CTkButton(self.frame, text="Login", command=self.login)
+        self.login_button.pack(pady=12, padx=10)
+
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+
+        if self.verify_credentials(username, password):
+            self.open_multi_tool()
+        else:
+            messagebox.showerror("Login Failed", "Invalid username or password")
+
+    def verify_credentials(self, username, password):
+        if username in USER_DB:
+            hashed_password = hashlib.sha256(password.encode()).hexdigest()
+            return USER_DB[username] == hashed_password
+        return False
+
+    def open_multi_tool(self):
+        self.master.withdraw()
+        multi_tool_window = ctk.CTkToplevel(self.master)
+        MultiToolApp(multi_tool_window)
+
+class MultiToolApp:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("Multi-Tool Application")
+        self.master.geometry("600x400")
+
+        self.notebook = ctk.CTkTabview(self.master)
+        self.notebook.pack(pady=20, padx=20, fill="both", expand=True)
+
+        # Chat tab
+        self.chat_tab = self.notebook.add("Chat")
+        self.setup_chat_tab()
+
+        # Calculator tab
+        self.calc_tab = self.notebook.add("Calculator")
+        self.setup_calculator_tab()
+
+        # Random Quote tab
+        self.quote_tab = self.notebook.add("Random Quote")
+        self.setup_quote_tab()
+
+        # Initialize chat client
+        self.initialize_chat_client()
+
+    def setup_chat_tab(self):
+        self.chat_frame = ctk.CTkFrame(self.chat_tab)
+        self.chat_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        self.chat_display = ctk.CTkTextbox(self.chat_frame, state="disabled", height=200)
+        self.chat_display.pack(pady=10, padx=10, fill="both", expand=True)
+
+        self.msg_entry = ctk.CTkEntry(self.chat_frame, placeholder_text="Type your message...")
+        self.msg_entry.pack(pady=10, padx=10, fill="x")
+
+        self.send_button = ctk.CTkButton(self.chat_frame, text="Send", command=self.send_message)
+        self.send_button.pack(pady=10, padx=10)
+
+    def setup_calculator_tab(self):
+        self.calc_frame = ctk.CTkFrame(self.calc_tab)
+        self.calc_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        # Display for calculator
+        self.calc_display = ctk.CTkEntry(self.calc_frame, justify="right", state="disabled")
+        self.calc_display.pack(pady=10, padx=10, fill="x")
+
+        buttons = [
+            '7', '8', '9', '/',
+            '4', '5', '6', '*',
+            '1', '2', '3', '-',
+            '0', '.', '=', '+'
+        ]
+
+        button_frame = ctk.CTkFrame(self.calc_frame)
+        button_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        row, col = 0, 0
+        for button in buttons:
+            cmd = lambda x=button: self.click_button(x)
+            # Increase the width of each button for better usability
+            ctk.CTkButton(button_frame, text=button, command=cmd, width=70).grid(row=row, column=col, padx=5, pady=5)
+            col += 1
+            if col > 3:
+                col = 0
+                row += 1
+
+    def setup_quote_tab(self):
+        self.quote_frame = ctk.CTkFrame(self.quote_tab)
+        self.quote_frame.pack(pady=10, padx=10, fill="both", expand=True)
+
+        self.quote_display = ctk.CTkTextbox(self.quote_frame, state="disabled", height=150)
+        self.quote_display.pack(pady=10, padx=10, fill="both", expand=True)
+
+        self.quote_button = ctk.CTkButton(self.quote_frame, text="Get Random Quote", command=self.get_random_quote)
+        self.quote_button.pack(pady=10, padx=10)
+
+    def initialize_chat_client(self):
+        try:
+            # Initialize chat client socket connection
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((HOST_IP, PORT))
+            receive_thread = threading.Thread(target=self.receive_messages)
+            receive_thread.start()
+            print("Connected to chat server.")
+            messagebox.showinfo("Chat Connection", "Connected to chat server.")
+            
+        except Exception as e:
+            messagebox.showerror("Connection Error", f"Unable to connect to chat server: {str(e)}")
+
+    def send_message(self):
+       message = self.msg_entry.get()
+       if message:
+           try:
+               full_message = f"You: {message}"
+               print(full_message)  # Optional: Print to console for debugging.
+               # Send encoded message to socket.
+               self.socket.send(full_message.encode())
+               # Clear message entry field.
+               self.msg_entry.delete(0,"end")
+           except Exception as e:
+               messagebox.showerror("Send Error", f"Unable to send message: {str(e)}")
+
+    def receive_messages(self):
+       while True:
+           try:
+               # Receive messages from server.
+               message = self.socket.recv(1024).decode()
+               if message:
+                   print(message)  # Optional: Print to console for debugging.
+                   # Enable chat display for updating.
+                   self.chat_display.configure(state="normal")
+                   # Insert new messages into chat display.
+                   self.chat_display.insert("end", message + "\n")
+                   # Disable chat display after updating.
+                   self.chat_display.configure(state="disabled")
+                   # Scroll to the end of the chat display.
+                   self.chat_display.see("end")
+           except Exception as e:
+               print(f"Error receiving messages: {str(e)}")  # Optional: Print error to console.
+               break
+
+    def click_button(self,key):
+       if key == '=':
+           try:
+               result = eval(self.calc_display.get())
+               print(f"Result: {result}")  # Optional: Print result to console for debugging.
+               # Enable calculator display for updating.
+               self.calc_display.configure(state="normal")
+               # Clear previous input and insert new result.
+               self.calc_display.delete(0,"end")
+               # Insert result into display and disable it again.
+               self.calc_display.insert("end", str(result))
+               # Disable calculator display after updating.
+               self.calc_display.configure(state="disabled")
+           except Exception as e:
+               print(f"Error in calculation: {str(e)}")  # Optional: Print error to console for debugging.
+               if "Error" not in str(e):  # Prevent repetitive error messages.
+                   messagebox.showerror("Calculation Error", "Invalid calculation.")
+       else:
+           print(f"Button clicked: {key}")  # Optional: Print clicked button value for debugging.
+           current_value=self.calc_display.get() + key 
+           print(f"Current value after adding '{key}': {current_value}")  # Optional debug output.
+
+           if len(current_value) <= 15:  # Limit input length to prevent overflow.
+                print(f"Calculator input updated: {current_value}")  
+                # Enable calculator display for updating and insert new input.
+                current_value=self.calc_display.get() + key 
+                print(f"Current value after adding '{key}': {current_value}")  
+
+           else: 
+                print(f"Input length exceeded limit.")  
+
+    def get_random_quote(self):
+       quotes=[
+          "The only way to do great work is to love what you do. - Steve Jobs",
+          "Life is what happens when you're busy making other plans. - John Lennon",
+          "The future belongs to those who believe in the beauty of their dreams. - Eleanor Roosevelt",
+          "Strive not to be a success but rather to be of value. - Albert Einstein",
+          "The only impossible journey is the one you never begin. - Tony Robbins"
+       ]
+       quote=random.choice(quotes)  
+       print(f"Random quote generated: {quote}")  
+       try:
+          if quote != "":
+              # Enable quote display for updating and insert new quote.
+              quote=self.quote_display.configure(state='normal')
+              quote.delete('1.0','end')
+              quote.insert('end',quote)  
+              quote.configure(state='disabled')  
+              return quote  
+       except Exception as e:
+          pass
+
+    def on_closing(self):
+       try:
+          if hasattr(self,'socket'):
+              socket.close()  
+       except Exception as e:
+          pass  
+       finally:
+          quit()  
+
+if __name__ == "__main__":
+   root=ctk.CTk()  
+   app=LoginApp(root)  
+   root.mainloop()
